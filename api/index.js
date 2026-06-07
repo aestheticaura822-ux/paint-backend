@@ -45,7 +45,79 @@ app.get('/api/products', async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 });
+// ========== CREATE PRODUCT (REAL) ==========
+app.post('/api/products', async (req, res) => {
+  try {
+    const { name, category, price, stock, description, images, colors } = req.body;
+    const slug = name.toLowerCase().replace(/ /g, '-');
+    
+    const { data, error } = await supabase
+      .from('products')
+      .insert([{
+        name,
+        slug,
+        category,
+        price: parseFloat(price),
+        stock: parseInt(stock),
+        description,
+        images: images || [],
+        colors: colors || [],
+        created_at: new Date(),
+        updated_at: new Date()
+      }])
+      .select();
+    
+    if (error) throw error;
+    res.status(201).json(data[0]);
+  } catch (error) {
+    console.error('Create product error:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
 
+// ========== UPDATE PRODUCT (REAL) ==========
+app.put('/api/products/:id', async (req, res) => {
+  try {
+    const productId = req.params.id;
+    const updates = req.body;
+    
+    const { data, error } = await supabase
+      .from('products')
+      .update({ ...updates, updated_at: new Date() })
+      .eq('id', productId)
+      .select();
+    
+    if (error) throw error;
+    
+    if (data.length === 0) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+    
+    res.json(data[0]);
+  } catch (error) {
+    console.error('Update product error:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// ========== DELETE PRODUCT (REAL) ==========
+app.delete('/api/products/:id', async (req, res) => {
+  try {
+    const productId = req.params.id;
+    
+    const { error } = await supabase
+      .from('products')
+      .delete()
+      .eq('id', productId);
+    
+    if (error) throw error;
+    
+    res.json({ message: 'Product deleted successfully' });
+  } catch (error) {
+    console.error('Delete product error:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
 // ========== ADMIN LOGIN ==========
 app.post('/api/admin/login', (req, res) => {
   try {
