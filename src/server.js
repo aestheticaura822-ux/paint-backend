@@ -35,9 +35,14 @@ if (!fs.existsSync(uploadsDir)) {
 }
 
 // ========== MIDDLEWARE ==========
-// CORS
+// CORS setup
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:5173'],
+  origin: [
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'https://paint-website-dusky.vercel.app',  // Tumhara frontend URL
+    'https://paint-website-dusky.vercel.app/'  // With slash
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
