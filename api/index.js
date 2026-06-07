@@ -26,7 +26,8 @@ app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'OK', 
     message: 'Backend is live!',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    supabase: supabase ? 'Connected' : 'Not configured'
   });
 });
 
@@ -69,7 +70,21 @@ app.post('/api/admin/login', (req, res) => {
   }
 });
 
-// ========== ORDERS ==========
+// ========== ORDERS (REAL) ==========
+app.get('/api/orders', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('orders')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
+    if (error) throw error;
+    res.json(data || []);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 app.post('/api/orders', async (req, res) => {
   try {
     const orderNumber = `ORD${Date.now()}`;
@@ -85,7 +100,8 @@ app.post('/api/orders', async (req, res) => {
         status: 'pending',
         shipping_address: req.body.shippingAddress,
         payment_method: req.body.paymentMethod || 'cod',
-        created_at: new Date()
+        created_at: new Date(),
+        updated_at: new Date()
       }])
       .select();
     
@@ -96,10 +112,27 @@ app.post('/api/orders', async (req, res) => {
   }
 });
 
-app.get('/api/orders', async (req, res) => {
+app.put('/api/orders/:id/status', async (req, res) => {
   try {
+    const { status } = req.body;
     const { data, error } = await supabase
       .from('orders')
+      .update({ status, updated_at: new Date() })
+      .eq('id', req.params.id)
+      .select();
+    
+    if (error) throw error;
+    res.json(data[0]);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// ========== CONTACTS (REAL) ==========
+app.get('/api/contacts', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('contacts')
       .select('*')
       .order('created_at', { ascending: false });
     
@@ -110,7 +143,6 @@ app.get('/api/orders', async (req, res) => {
   }
 });
 
-// ========== CONTACTS ==========
 app.post('/api/contacts', async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -132,46 +164,126 @@ app.post('/api/contacts', async (req, res) => {
   }
 });
 
-app.get('/api/contacts', async (req, res) => {
+app.put('/api/contacts/:id/read', async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('contacts')
-      .select('*')
-      .order('created_at', { ascending: false });
+      .update({ status: 'read' })
+      .eq('id', req.params.id)
+      .select();
     
     if (error) throw error;
-    res.json(data || []);
+    res.json(data[0]);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 });
 
-// ========== DASHBOARD STATS ==========
+app.delete('/api/contacts/:id', async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from('contacts')
+      .delete()
+      .eq('id', req.params.id);
+    
+    if (error) throw error;
+    res.json({ message: 'Message deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// ========== DASHBOARD STATS (REAL) ==========
 app.get('/api/dashboard/stats', async (req, res) => {
   try {
+    // Real products count
     const { count: productsCount } = await supabase
       .from('products')
       .select('*', { count: 'exact', head: true });
     
+    // Real orders
     const { data: orders } = await supabase
       .from('orders')
       .select('*');
     
+    // Real unread messages count
     const { count: unreadCount } = await supabase
       .from('contacts')
       .select('*', { count: 'exact', head: true })
       .eq('status', 'unread');
     
+    // Real revenue calculation
     const deliveredOrders = orders?.filter(o => o.status === 'delivered') || [];
     const totalRevenue = deliveredOrders.reduce((sum, o) => sum + (o.total_amount || 0), 0);
     
     res.json({
       totalProducts: productsCount || 0,
       totalOrders: orders?.length || 0,
-      totalRevenue,
-      unreadMessages: unreadCount || 0
+      totalRevenue: totalRevenue,
+      unreadMessages: unreadCount || 0,
+      pendingOrders: orders?.filter(o => o.status === 'pending').length || 0
     });
   } catch (error) {
+    console.error('Dashboard stats error:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// ========== SALES CHART (REAL DATA FROM ORDERS) ==========
+app.get('/api/dashboard/sales-chart', async (req, res) => {
+  try {
+    // Get real orders from last 7 days
+    const { data: orders } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('status', 'delivered');
+    
+    // Calculate sales per day from real orders
+    const last7Days = [];
+    const salesByDay = {};
+    
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+      const dateStr = date.toISOString().split('T')[0];
+      last7Days.push(dayName);
+      salesByDay[dateStr] = 0;
+    }
+    
+    // Aggregate real order amounts
+    orders?.forEach(order => {
+      const orderDate = new Date(order.created_at).toISOString().split('T')[0];
+      if (salesByDay[orderDate] !== undefined) {
+        salesByDay[orderDate] += order.total_amount || 0;
+      }
+    });
+    
+    const salesData = last7Days.map((day, index) => ({
+      name: day,
+      sales: Object.values(salesByDay)[index] || 0
+    }));
+    
+    res.json(salesData);
+  } catch (error) {
+    console.error('Sales chart error:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// ========== RECENT ORDERS (REAL) ==========
+app.get('/api/dashboard/recent-orders', async (req, res) => {
+  try {
+    const { data: orders, error } = await supabase
+      .from('orders')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(5);
+    
+    if (error) throw error;
+    res.json(orders || []);
+  } catch (error) {
+    console.error('Recent orders error:', error);
     res.status(500).json({ message: error.message });
   }
 });
